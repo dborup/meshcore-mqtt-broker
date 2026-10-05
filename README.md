@@ -7,6 +7,7 @@ A WebSocket-based MQTT broker with MeshCore public key authentication.
 - **WebSocket MQTT**: Uses MQTT over WebSockets (not MQTT over TCP protocol)
 - **Public Key Authentication**: Clients authenticate using their MeshCore public keys
 - **Topic Authorization**: Controls access to meshcore/* topics
+- **Client RX Topics** (opt-in): Lets mobile clients report their own RX coverage to an allowlisted consumer, see [Client RX topics](#client-rx-topics)
 
 ## Authentication
 
@@ -97,6 +98,16 @@ npm run build
 npm start
 ```
 
+### Tests
+```bash
+npm test          # unit tests plus in-process broker integration tests
+npm run typecheck # type check sources and tests
+```
+
+The integration tests start the broker in-process on ports 13701-13703 and
+connect real MQTT clients to it. Set `BROKER_TEST_VERBOSE=1` to see the broker
+log while they run.
+
 ## Connecting Clients
 
 ### JavaScript/Node.js Example
@@ -162,6 +173,41 @@ Where:
 All published messages must be valid JSON and contain an `origin_id` field matching your authenticated public key. In the future, this requirement and the origin_id field may be removed, as they are a part of the MQTT session. For now, this is largely for backwards compatibility.
 
 Subscribers (read-only users) can subscribe to any topic including wildcards like `meshcore/#`.
+
+## Client RX topics
+
+Mobile clients can report the packets their own radio received, so coverage can
+be measured from the client side instead of only from fixed observers:
+
+- `meshcore/client/{PUBLIC_KEY}/packets`
+
+These payloads typically contain a precise position, so the namespace is
+**disabled by default** and is restricted when enabled:
+
+- a publisher may only publish under its own public key, and only to the
+  `packets` subtopic (exactly 4 topic segments, lowercase `client`);
+- no IATA code is involved, so IATA validation and IATA change tracking are
+  skipped - rate limiting and the duplicate/size abuse checks still apply;
+- `origin_id` is not required in the payload (the topic already carries the
+  authenticated public key);
+- retained publishes are rejected, so a position is never stored in the broker;
+- the publisher token must carry `exp` with a lifetime of at most 24 hours;
+- packets are only delivered to subscriber usernames listed in
+  `CLIENT_RX_SUBSCRIBERS`. The check runs per packet, so wildcard subscriptions
+  such as `meshcore/#` are covered as well, and role 1 (admin) is not exempt.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CLIENT_RX_ENABLED` | `false` | Set to `true` to accept the namespace. Anything else leaves the topic rejected. |
+| `CLIENT_RX_SUBSCRIBERS` | *(empty)* | Comma separated subscriber usernames allowed to receive client RX packets. Empty means nobody receives them. |
+| `CLIENT_RX_MAX_TOKEN_LIFETIME_S` | `86400` | Largest accepted `exp - iat` of a publishing token. Values above 86400 (24h) are capped. |
+| `CLIENT_RX_CLOCK_SKEW_S` | `300` | How far `iat` may be in the future before the publish is rejected. |
+
+With `CLIENT_RX_ENABLED` unset the broker behaves exactly as it does without
+this feature: the topic is rejected and subscriptions are answered as before.
+
+See [docs/client-rx-topics.md](docs/client-rx-topics.md) for the full topic
+contract and the client side token requirements.
 
 
 ## Deployment
