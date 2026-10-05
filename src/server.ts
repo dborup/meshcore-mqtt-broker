@@ -707,7 +707,12 @@ aedes.authorizeSubscribe = (client, subscription, callback) => {
       !clientRxConfig.subscribers.includes((client as any).username || '')
     ) {
       console.log(`${logPrefix} [AUTHZ] ✗ Subscribe denied (client RX not allowlisted) -> ${subscription.topic}`);
-      callback(new Error('Subscriber is not allowlisted for client RX topics'));
+      // callback(null, null) refuses this one filter with a negative SUBACK
+      // (0x80). Refusing with an Error would make aedes drop the whole
+      // connection, which would take every other topic in the same SUBSCRIBE
+      // down with it - an admin dashboard that subscribes to a topic list
+      // including meshcore/client/# would lose all of its subscriptions.
+      callback(null, null);
       return;
     }
 

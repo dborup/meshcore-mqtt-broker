@@ -20,6 +20,7 @@ import {
   settle,
   startTestBroker,
   subscribe,
+  subscribeMany,
   waitFor,
 } from './helpers/broker';
 
@@ -245,14 +246,61 @@ test('a subscriber outside the allowlist cannot subscribe to the namespace expli
     const subscriber = await connectSubscriber(broker, username, []);
     const outcome = await subscribe(subscriber, 'meshcore/client/#');
 
-    assert.notEqual(outcome, 'granted', `${username} must not be granted a client RX subscription`);
-    await expectSessionClosed(broker, subscriber.clientId);
+    assert.equal(outcome, 'refused', `${username} must not be granted a client RX subscription`);
     await expectLogLine(broker, ['✗ Subscribe denied (client RX not allowlisted)', 'meshcore/client/#']);
+    // Refusing the filter must not cost the subscriber its session.
+    assert.ok(
+      broker.sessionIds().includes(subscriber.clientId),
+      `${username} must keep its session after a refused client RX subscription`
+    );
+    await subscriber.end();
   }
 
   const ingest = await connectSubscriber(broker, ALLOWLISTED, ['meshcore/client/#']);
   assert.ok(broker.sessionIds().includes(ingest.clientId));
   await ingest.end();
+});
+
+test('refusing one filter leaves the rest of the SUBSCRIBE working', async () => {
+  // An admin dashboard subscribing to a topic list that happens to include
+  // meshcore/client/# must keep every other topic in that list.
+  const keypair = await createTestKeypair('rx-partial-suback');
+  const admin = await connectSubscriber(broker, ADMIN, []);
+
+  const granted = await subscribeMany(admin, [
+    'meshcore/SEA/#',
+    'meshcore/client/#',
+    '$SYS/#',
+  ]);
+
+  assert.deepEqual(granted, [
+    { topic: 'meshcore/SEA/#', qos: 0 },
+    { topic: 'meshcore/client/#', qos: 128 },
+    { topic: '$SYS/#', qos: 0 },
+  ]);
+  assert.ok(broker.sessionIds().includes(admin.clientId), 'the session must survive a negative SUBACK');
+
+  // The granted observer filter still delivers.
+  const publisher = await connectPublisher(broker, keypair, await createTestToken(keypair));
+  const topic = `meshcore/SEA/${keypair.publicKeyHex}/packets`;
+  const payload = { origin_id: keypair.publicKeyHex, raw: 'cd'.repeat(8) };
+  await publish(publisher, topic, payload);
+
+  await waitFor(
+    () => admin.messages.some((m) => m.topic === topic),
+    'the observer packet on the still-granted filter'
+  );
+
+  // ...and the refused filter delivers nothing.
+  await publish(publisher, clientTopic(keypair), RX_PAYLOAD);
+  await settle();
+  assert.deepEqual(
+    admin.messages.filter((m) => m.topic.startsWith('meshcore/client/')),
+    [],
+    'the refused filter must not deliver client RX packets'
+  );
+
+  await Promise.all([admin.end(), publisher.end()]);
 });
 
 test('a wildcard subscription outside the allowlist is granted but filtered', async () => {

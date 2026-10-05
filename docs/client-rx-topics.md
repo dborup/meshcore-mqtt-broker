@@ -84,8 +84,12 @@ receiving client is a subscriber whose username appears in
 - role 1 (admin) is not exempt;
 - an empty allowlist delivers client RX data to nobody;
 - while the feature is enabled, an *explicit* subscription inside the namespace
-  from a subscriber that is not allowlisted is refused outright, so a
-  misconfigured consumer fails loudly instead of silently receiving nothing.
+  from a subscriber that is not allowlisted is answered with a negative SUBACK
+  (`0x80`) for that filter, so a misconfigured consumer fails loudly instead of
+  silently receiving nothing. Only that filter is refused: the connection stays
+  up and every other topic in the same SUBSCRIBE is granted as usual, so a
+  dashboard subscribing to a topic list that happens to include
+  `meshcore/client/#` does not lose its other subscriptions.
 
 ## Configuration
 

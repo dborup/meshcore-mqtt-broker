@@ -300,13 +300,54 @@ export async function settle(ms = 400): Promise<void> {
   await delay(ms);
 }
 
+/**
+ * Subscribe to several filters in one SUBSCRIBE and report the granted QoS per
+ * topic (128 = 0x80 = refused).
+ *
+ * Needed to show that refusing one filter leaves the rest of the SUBSCRIBE
+ * intact instead of dropping the connection. mqtt.js reports any 0x80 in a
+ * SUBACK as a subscribe error, but it attaches the SUBACK packet, and the
+ * granted codes in it are what the broker actually answered - the connection
+ * and the other filters are unaffected.
+ */
+export function subscribeMany(
+  testClient: TestClient,
+  topics: string[],
+  timeoutMs = 2000
+): Promise<{ topic: string; qos: number }[]> {
+  const suback = new Promise<{ topic: string; qos: number }[]>((resolve, reject) => {
+    testClient.client.subscribe(topics, { qos: 0 }, (err, granted) => {
+      const fromSuback: number[] | undefined = (err as any)?.packet?.granted;
+      if (fromSuback) {
+        resolve(topics.map((topic, index) => ({ topic, qos: fromSuback[index] })));
+        return;
+      }
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve((granted ?? []).map((g) => ({ topic: g.topic, qos: g.qos as number })));
+    });
+  });
+
+  // A broker that refuses the whole SUBSCRIBE never sends a SUBACK, so fail
+  // here rather than hanging until the test runner's own timeout.
+  return Promise.race([
+    suback,
+    delay(timeoutMs).then<{ topic: string; qos: number }[]>(() => {
+      throw new Error(`no SUBACK for ${topics.join(', ')} within ${timeoutMs}ms`);
+    }),
+  ]);
+}
+
 export type SubscribeOutcome = 'granted' | 'refused' | 'no-suback';
 
 /**
  * Subscribe and report the outcome instead of throwing.
  *
- * A subscription the broker refuses never gets a SUBACK - aedes closes the
- * MQTT session instead - so a timeout is a valid outcome here.
+ * A filter the broker answers with a negative SUBACK comes back as 'refused'.
+ * A filter the broker refuses with an Error never gets a SUBACK at all - aedes
+ * closes the MQTT session instead - so a timeout is also a valid outcome.
  */
 export async function subscribe(
   testClient: TestClient,

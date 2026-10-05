@@ -13,7 +13,6 @@ import {
   createTestKeypair,
   createTestToken,
   expectLogLine,
-  expectSessionClosed,
   publish,
   settle,
   startTestBroker,
@@ -89,8 +88,10 @@ test('an empty allowlist delivers client RX packets to nobody', async () => {
 test('nobody can subscribe to the namespace explicitly', async () => {
   for (const username of [VIEWER, ADMIN]) {
     const subscriber = await connectSubscriber(broker, username, []);
-    assert.notEqual(await subscribe(subscriber, `meshcore/client/#`), 'granted');
-    await expectSessionClosed(broker, subscriber.clientId);
+    assert.equal(await subscribe(subscriber, `meshcore/client/#`), 'refused');
+    // A negative SUBACK, not a dropped connection.
+    assert.ok(broker.sessionIds().includes(subscriber.clientId));
+    await subscriber.end();
   }
 });
 
