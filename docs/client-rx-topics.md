@@ -45,6 +45,8 @@ time:
 
 - `exp` is present. The decoder only validates `exp` when the claim exists, so
   a token without it would otherwise never expire.
+- `exp - iat` is positive. A token that expires at or before it was issued is
+  malformed and is refused.
 - `exp - iat` is at most `CLIENT_RX_MAX_TOKEN_LIFETIME_S` (default and hard cap
   86400 seconds).
 - `iat` is no more than `CLIENT_RX_CLOCK_SKEW_S` in the future (default 300).

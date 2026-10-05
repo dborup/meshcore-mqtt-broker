@@ -136,6 +136,7 @@ export type ClientRxTokenRejection =
   | 'missing_iat'
   | 'missing_exp'
   | 'iat_in_future'
+  | 'nonpositive_lifetime'
   | 'lifetime_too_long'
   | 'expired';
 
@@ -175,6 +176,12 @@ export function validateClientRxToken(
   const lifetimeS = exp - iat;
   if (iat > nowS + limits.clockSkewS) {
     return { ok: false, reason: 'iat_in_future', lifetimeS };
+  }
+  // A token that expires at or before it was issued is malformed. It is still
+  // bounded by `exp`, so this is not a hole, but there is no reason to accept
+  // it on a namespace that requires a deliberate short lifetime.
+  if (lifetimeS <= 0) {
+    return { ok: false, reason: 'nonpositive_lifetime', lifetimeS };
   }
   if (lifetimeS > limits.maxTokenLifetimeS) {
     return { ok: false, reason: 'lifetime_too_long', lifetimeS };

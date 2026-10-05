@@ -160,6 +160,23 @@ test('a token without exp cannot publish client RX packets', async () => {
   await ingest.end();
 });
 
+test('a token that expires at or before iat cannot publish client RX packets', async () => {
+  const keypair = await createTestKeypair('rx-nonpositive-lifetime');
+  const ingest = await connectSubscriber(broker, ALLOWLISTED);
+  // exp is still in the future, so the decoder lets the client connect, and
+  // iat stays inside the accepted clock skew - only the lifetime is malformed.
+  const iat = Math.floor(Date.now() / 1000) + 200;
+  const publisher = await connectPublisher(broker, keypair, await createTestToken(keypair, { iat, exp: iat - 100 }));
+
+  await publish(publisher, clientTopic(keypair), RX_PAYLOAD);
+
+  await expectSessionClosed(broker, publisher.clientId);
+  await expectLogLine(broker, ['✗ Publish denied', clientTopic(keypair), '(token nonpositive_lifetime)']);
+  assert.deepEqual(ingest.messages, []);
+
+  await ingest.end();
+});
+
 test('a token with a lifetime above 24h cannot publish client RX packets', async () => {
   const keypair = await createTestKeypair('rx-long-lifetime');
   const ingest = await connectSubscriber(broker, ALLOWLISTED);

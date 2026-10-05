@@ -144,6 +144,22 @@ test('validateClientRxToken rejects a lifetime above the budget', () => {
   );
 });
 
+test('validateClientRxToken rejects a token that expires at or before iat', () => {
+  const now = 1_700_000_000;
+  assert.deepEqual(validateClientRxToken({ iat: now, exp: now }, now, LIMITS), {
+    ok: false,
+    reason: 'nonpositive_lifetime',
+    lifetimeS: 0,
+  });
+  assert.deepEqual(validateClientRxToken({ iat: now + 200, exp: now + 100 }, now, LIMITS), {
+    ok: false,
+    reason: 'nonpositive_lifetime',
+    lifetimeS: -100,
+  });
+  // One second of lifetime is still a lifetime.
+  assert.equal(validateClientRxToken({ iat: now, exp: now + 1 }, now, LIMITS).ok, true);
+});
+
 test('validateClientRxToken rejects iat too far in the future', () => {
   const now = 1_700_000_000;
   assert.equal(validateClientRxToken({ iat: now + 301, exp: now + 400 }, now, LIMITS).reason, 'iat_in_future');
