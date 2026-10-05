@@ -144,14 +144,16 @@ function captureConsole(): { lines: string[]; restore: () => void } {
  * Import src/server.ts with the given environment and wait until it listens.
  *
  * Only one broker can run per process because the module is a singleton, so
- * each test file uses its own port and its own file.
+ * each test file gets its own process (node:test) and its own data directory.
+ *
+ * The listening port is 0 by default, so the OS picks a free one and parallel
+ * runs cannot collide; the real port is read back from the listening socket.
+ * Set BROKER_TEST_PORT to pin it when watching the traffic from outside.
  */
-export async function startTestBroker(
-  port: number,
-  env: Record<string, string> = {}
-): Promise<TestBroker> {
+export async function startTestBroker(env: Record<string, string> = {}): Promise<TestBroker> {
   const dataDir = mkdtempSync(join(tmpdir(), 'meshcore-broker-test-'));
-  Object.assign(process.env, baseEnv(port, join(dataDir, 'abuse-detection.db')), env);
+  const requestedPort = Number(process.env.BROKER_TEST_PORT ?? 0);
+  Object.assign(process.env, baseEnv(requestedPort, join(dataDir, 'abuse-detection.db')), env);
 
   const captured = captureConsole();
   const server = await import('../../src/server');
@@ -159,6 +161,12 @@ export async function startTestBroker(
   while (!server.httpServer.listening) {
     await delay(10);
   }
+
+  const address = server.httpServer.address();
+  if (typeof address !== 'object' || address === null) {
+    throw new Error(`the broker is not listening on a TCP socket (address: ${String(address)})`);
+  }
+  const port = address.port;
 
   return {
     port,

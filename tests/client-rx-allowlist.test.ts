@@ -20,14 +20,13 @@ import {
   waitFor,
 } from './helpers/broker';
 
-const PORT = 13703;
 const VIEWER = 'viewer';
 const ADMIN = 'admin';
 
 let broker: TestBroker;
 
 before(async () => {
-  broker = await startTestBroker(PORT, {
+  broker = await startTestBroker({
     SUBSCRIBER_1: `${VIEWER}:${SUBSCRIBER_PASSWORD}:2`,
     SUBSCRIBER_2: `${ADMIN}:${SUBSCRIBER_PASSWORD}:1`,
     CLIENT_RX_ENABLED: 'true',

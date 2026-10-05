@@ -104,9 +104,10 @@ npm test          # unit tests plus in-process broker integration tests
 npm run typecheck # type check sources and tests
 ```
 
-The integration tests start the broker in-process on ports 13701-13703 and
-connect real MQTT clients to it. Set `BROKER_TEST_VERBOSE=1` to see the broker
-log while they run.
+The integration tests start the broker in-process on an ephemeral port (the OS
+picks a free one, so parallel runs do not collide) and connect real MQTT clients
+to it. Set `BROKER_TEST_PORT` to pin the port, and `BROKER_TEST_VERBOSE=1` to
+see the broker log while they run.
 
 ## Connecting Clients
 

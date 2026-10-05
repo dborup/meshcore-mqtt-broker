@@ -24,7 +24,6 @@ import {
   waitFor,
 } from './helpers/broker';
 
-const PORT = 13701;
 const ALLOWLISTED = 'ingest';
 const NOT_ALLOWLISTED = 'viewer';
 const ADMIN = 'admin';
@@ -33,7 +32,7 @@ const TYPO = 'ingset';
 let broker: TestBroker;
 
 before(async () => {
-  broker = await startTestBroker(PORT, {
+  broker = await startTestBroker({
     SUBSCRIBER_1: `${ALLOWLISTED}:${SUBSCRIBER_PASSWORD}:2`,
     SUBSCRIBER_2: `${NOT_ALLOWLISTED}:${SUBSCRIBER_PASSWORD}:2`,
     SUBSCRIBER_3: `${ADMIN}:${SUBSCRIBER_PASSWORD}:1`,

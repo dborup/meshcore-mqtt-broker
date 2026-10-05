@@ -21,14 +21,13 @@ import {
   waitFor,
 } from './helpers/broker';
 
-const PORT = 13702;
 const SUBSCRIBER = 'ingest';
 
 let broker: TestBroker;
 
 before(async () => {
   // No CLIENT_RX_* variables at all: the default configuration.
-  broker = await startTestBroker(PORT, {
+  broker = await startTestBroker({
     SUBSCRIBER_1: `${SUBSCRIBER}:${SUBSCRIBER_PASSWORD}:2`,
   });
 });
