@@ -187,7 +187,9 @@ These payloads typically contain a precise position, so the namespace is
 - a publisher may only publish under its own public key, and only to the
   `packets` subtopic (exactly 4 topic segments, lowercase `client`);
 - no IATA code is involved, so IATA validation and IATA change tracking are
-  skipped - rate limiting and the duplicate/size abuse checks still apply;
+  skipped. The abuse detector records the packet exactly as it does for an
+  observer topic, which means the duplicate, rate and size counters are
+  *tracked* but, like everywhere else in this broker, not enforced on publish;
 - `origin_id` is not required in the payload (the topic already carries the
   authenticated public key);
 - retained publishes are rejected, so a position is never stored in the broker;
@@ -203,8 +205,10 @@ These payloads typically contain a precise position, so the namespace is
 | `CLIENT_RX_MAX_TOKEN_LIFETIME_S` | `86400` | Largest accepted `exp - iat` of a publishing token. Values above 86400 (24h) are capped. |
 | `CLIENT_RX_CLOCK_SKEW_S` | `300` | How far `iat` may be in the future before the publish is rejected. |
 
-With `CLIENT_RX_ENABLED` unset the broker behaves exactly as it does without
-this feature: the topic is rejected and subscriptions are answered as before.
+With `CLIENT_RX_ENABLED` unset the namespace is rejected and subscriptions are
+answered as before. One deliberate difference remains in that state: the
+per-packet forward guard always runs, so nothing under `meshcore/client/` is
+delivered to anyone, not even an admin's empty retained "delete" publish.
 
 See [docs/client-rx-topics.md](docs/client-rx-topics.md) for the full topic
 contract and the client side token requirements.

@@ -27,12 +27,15 @@ Differences from an observer publish:
 | `origin_id` in payload | required | not required |
 | retained publish | allowed (except `/status`) | rejected |
 | `/internal` JWT mirror | published (admin only) | not published |
-| rate limit, duplicate and size checks | yes | yes |
+| duplicate, rate and size checks | tracked, not enforced | tracked, not enforced |
 | token `exp` | optional | required, max 24h |
 
-The broker does not inspect the payload of a client RX publish beyond the abuse
-checks it already applies to every packet. Any geofencing or position
-generalization is the consumer's responsibility.
+The broker does not inspect the payload of a client RX publish. It feeds the
+packet to the abuse detector the same way an observer publish does, so the
+duplicate, rate and size counters are kept up to date, but no publish is
+refused on their account - `shouldSilencePacket()` is not consulted anywhere in
+the broker today. Any geofencing or position generalization is the consumer's
+responsibility.
 
 ## Token requirements
 
@@ -90,8 +93,13 @@ receiving client is a subscriber whose username appears in
 | `CLIENT_RX_MAX_TOKEN_LIFETIME_S` | `86400` | Largest accepted `exp - iat`. Capped at 86400. |
 | `CLIENT_RX_CLOCK_SKEW_S` | `300` | How far `iat` may be in the future. |
 
-All four are optional. With none of them set the feature is off and the broker
-behaves exactly as it does without this feature.
+All four are optional. With none of them set the namespace is rejected and
+subscriptions are answered as before, with one deliberate difference: the
+per-packet forward guard runs regardless of `CLIENT_RX_ENABLED`, so a message
+under `meshcore/client/` is never delivered, not even an admin's empty retained
+"delete" publish. The remaining differences are log lines only (a `[CONFIG]`
+line at start, a `[CLAIMS]` line per publisher login, and a more specific deny
+reason).
 
 ## Logging
 

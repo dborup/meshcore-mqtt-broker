@@ -386,9 +386,11 @@ aedes.authorizePublish = (client, packet, callback) => {
         packet.topic = normalizedClientRxTopic;
       }
 
-      // Rate limiting and the duplicate/size abuse checks still apply. IATA
-      // validation and IATA change tracking are skipped: there is no location
-      // code in this namespace.
+      // Feed the abuse detector so the duplicate/rate/size counters stay
+      // accurate for this client. As on the observer path, this is tracking
+      // only: nothing here refuses the publish. IATA validation and IATA
+      // change tracking are skipped - there is no location code in this
+      // namespace.
       const clientRxTrustState = abuseDetector.getClientStats(authenticatedKey);
       if (clientRxTrustState) {
         abuseDetector.recordPacket(client, packet);

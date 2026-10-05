@@ -235,7 +235,7 @@ function parseBoundedInt(raw: string | undefined, fallback: number, min: number,
  * Build the client RX configuration from an environment-like object.
  *
  * Every variable is optional: with none of them set the feature is disabled
- * and the broker behaves exactly as it did before.
+ * and the namespace is rejected like any other unknown topic.
  */
 export function resolveClientRxConfig(env: Record<string, string | undefined>): ClientRxConfig {
   return {
