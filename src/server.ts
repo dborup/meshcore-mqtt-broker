@@ -7,12 +7,19 @@ import { getAirportInfo } from 'airport-utils';
 import { RateLimiter } from './rate-limiter';
 import { getClientIP } from './ip-utils';
 import { AbuseDetector } from './abuse-detector';
-import { loadMqttConfig, loadAbuseConfig, loadSubscriberConfig } from './config';
+import { loadMqttConfig, loadAbuseConfig, loadSubscriberConfig, loadClientRxConfig } from './config';
+import {
+  clientRxTopic,
+  findUnknownClientRxSubscribers,
+  isClientRxNamespace,
+  parseClientRxTopic,
+} from './client-rx';
 
 // Load and validate configuration
 const mqttConfig = loadMqttConfig();
 const abuseConfig = loadAbuseConfig();
 const subscriberConfig = loadSubscriberConfig();
+const clientRxConfig = loadClientRxConfig();
 
 const WS_PORT = mqttConfig.wsPort;
 const HOST = mqttConfig.host;
@@ -109,6 +116,25 @@ if (subscriberUsers.size === 0) {
 } else {
   console.log(`[CONFIG] Default max connections per subscriber: ${subscriberConfig.defaultMaxConnections}`);
 }
+
+// Checked here rather than in loadClientRxConfig(): the SUBSCRIBER_n table is
+// only known once the loop above has run.
+const unknownClientRxSubscribers = findUnknownClientRxSubscribers(
+  clientRxConfig.subscribers,
+  new Set(subscriberUsers.keys())
+);
+if (unknownClientRxSubscribers.length > 0) {
+  console.warn(
+    `[CONFIG] CLIENT_RX_SUBSCRIBERS lists ${unknownClientRxSubscribers.length} name(s) with no matching SUBSCRIBER_n: ` +
+    `${unknownClientRxSubscribers.join(', ')} - they will never receive anything`
+  );
+}
+
+console.log(
+  `[CONFIG] Client RX topics: ${clientRxConfig.enabled ? 'enabled' : 'disabled'} ` +
+  `(allowlisted subscribers: ${clientRxConfig.subscribers.length}, ` +
+  `max token lifetime: ${clientRxConfig.maxTokenLifetimeS}s, clock skew: ${clientRxConfig.clockSkewS}s)`
+);
 
 // Create Aedes MQTT broker
 const aedes = new Aedes();
@@ -306,6 +332,62 @@ aedes.authorizePublish = (client, packet, callback) => {
     if (!packet.topic.startsWith('meshcore/')) {
       console.log(`${logPrefix} [AUTHZ] ✗ Publish denied -> ${packet.topic} (not meshcore/*)`);
       callback(new Error('Publishers can only publish to meshcore/* topics'));
+      return;
+    }
+
+    // Client reported RX coverage: meshcore/client/{PUBLIC_KEY}/packets
+    // Handled before the IATA format below, because these topics carry no
+    // location code and nothing in the namespace may fall through to it.
+    if (isClientRxNamespace(packet.topic)) {
+      if (!clientRxConfig.enabled) {
+        console.log(`${logPrefix} [AUTHZ] ✗ Publish denied -> ${packet.topic} (client RX topics disabled)`);
+        callback(new Error('Client RX topics are not enabled on this broker'));
+        return;
+      }
+
+      const clientRxTarget = parseClientRxTopic(packet.topic);
+      if (!clientRxTarget) {
+        console.log(`${logPrefix} [AUTHZ] ✗ Publish denied -> ${packet.topic} (invalid client RX topic)`);
+        callback(new Error('Client RX topic must be meshcore/client/{PUBLIC_KEY}/packets'));
+        return;
+      }
+
+      const authenticatedKey = ((client as any).publicKey || '').toUpperCase();
+      if (clientRxTarget.publicKey !== authenticatedKey) {
+        console.log(`${logPrefix} [AUTHZ] ✗ Publish denied -> ${packet.topic} (pubkey mismatch)`);
+        console.log(`${logPrefix} [DISCONNECT] Closing client - Public key mismatch on client RX topic`);
+        callback(new Error('Public key in topic must match authenticated public key'));
+        client.close();
+        return;
+      }
+
+      // Client RX payloads carry a precise position: never keep them in the
+      // broker's retained store.
+      if (packet.retain) {
+        console.log(`${logPrefix} [AUTHZ] ✗ Publish denied -> ${packet.topic} (retained client RX publish)`);
+        callback(new Error('Client RX packets cannot be retained'));
+        return;
+      }
+
+      // Normalize the public key so one client cannot create two topics.
+      const normalizedClientRxTopic = clientRxTopic(clientRxTarget.publicKey);
+      if (packet.topic !== normalizedClientRxTopic) {
+        console.log(`${logPrefix} [AUTHZ] Normalized topic: ${packet.topic} -> ${normalizedClientRxTopic}`);
+        packet.topic = normalizedClientRxTopic;
+      }
+
+      // Feed the abuse detector so the duplicate/rate/size counters stay
+      // accurate for this client. As on the observer path, this is tracking
+      // only: nothing here refuses the publish. IATA validation and IATA
+      // change tracking are skipped - there is no location code in this
+      // namespace.
+      const clientRxTrustState = abuseDetector.getClientStats(authenticatedKey);
+      if (clientRxTrustState) {
+        abuseDetector.recordPacket(client, packet);
+      }
+
+      console.log(`${logPrefix} [AUTHZ] ✓ Publish authorized (client RX) -> ${packet.topic}`);
+      callback(null);
       return;
     }
 
