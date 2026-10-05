@@ -1127,20 +1127,42 @@ httpServer.listen(WS_PORT, HOST, () => {
 });
 
 // Graceful shutdown
-process.on('SIGINT', () => {
-  console.log('\n[SHUTDOWN] Closing MQTT broker...');
-  abuseDetector.shutdown();
-  aedes.close(() => {
-    console.log('[SHUTDOWN] Broker closed');
-    process.exit(0);
-  });
-});
+let closing = false;
 
-process.on('SIGTERM', () => {
-  console.log('\n[SHUTDOWN] Closing MQTT broker...');
+/**
+ * Stop accepting connections, flush abuse detection state and release the
+ * listening socket. Exported so an embedder (or a test) can shut the broker
+ * down without killing the process.
+ */
+export function closeBroker(): Promise<void> {
+  if (closing) {
+    return Promise.resolve();
+  }
+  closing = true;
+
   abuseDetector.shutdown();
-  aedes.close(() => {
+
+  return new Promise((resolve) => {
+    aedes.close(() => {
+      for (const ws of wsServer.clients) {
+        ws.terminate();
+      }
+      wsServer.close(() => {
+        httpServer.close(() => resolve());
+      });
+    });
+  });
+}
+
+function shutdownAndExit(): void {
+  console.log('\n[SHUTDOWN] Closing MQTT broker...');
+  closeBroker().then(() => {
     console.log('[SHUTDOWN] Broker closed');
     process.exit(0);
   });
-});
+}
+
+process.on('SIGINT', shutdownAndExit);
+process.on('SIGTERM', shutdownAndExit);
+
+export { aedes, httpServer };
