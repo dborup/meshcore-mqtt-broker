@@ -14,6 +14,7 @@ import {
   isClientRxNamespace,
   parseClientRxTopic,
   shouldForwardClientRx,
+  validateClientRxToken,
 } from './client-rx';
 
 // Load and validate configuration
@@ -367,6 +368,22 @@ aedes.authorizePublish = (client, packet, callback) => {
       if (packet.retain) {
         console.log(`${logPrefix} [AUTHZ] ✗ Publish denied -> ${packet.topic} (retained client RX publish)`);
         callback(new Error('Client RX packets cannot be retained'));
+        return;
+      }
+
+      // The decoder only checks `exp` when the claim is present, and a long
+      // lived connection can outlive its token, so the time claims are
+      // re-checked on every client RX publish.
+      const tokenCheck = validateClientRxToken(
+        (client as any).tokenPayload,
+        Math.floor(Date.now() / 1000),
+        clientRxConfig
+      );
+      if (!tokenCheck.ok) {
+        console.log(`${logPrefix} [AUTHZ] ✗ Publish denied -> ${packet.topic} (token ${tokenCheck.reason})`);
+        console.log(`${logPrefix} [DISCONNECT] Closing client - Client RX token rejected (${tokenCheck.reason})`);
+        callback(new Error(`Client RX token rejected: ${tokenCheck.reason}`));
+        client.close();
         return;
       }
 
