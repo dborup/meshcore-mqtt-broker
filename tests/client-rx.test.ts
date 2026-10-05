@@ -8,6 +8,7 @@ import {
   CLIENT_RX_MAX_TOKEN_LIFETIME_LIMIT_S,
   clientRxTopic,
   describeTokenClaims,
+  findUnknownClientRxSubscribers,
   formatTokenClaimShape,
   isClientRxNamespace,
   isClientRxTopic,
@@ -80,6 +81,17 @@ test('parseClientRxSubscribers trims, drops empties and dedupes', () => {
   assert.deepEqual(parseClientRxSubscribers(''), []);
   assert.deepEqual(parseClientRxSubscribers(undefined), []);
   assert.deepEqual(parseClientRxSubscribers('   '), []);
+});
+
+test('findUnknownClientRxSubscribers reports names with no SUBSCRIBER_n', () => {
+  const known = new Set(['ingest', 'viewer']);
+  assert.deepEqual(findUnknownClientRxSubscribers(['ingest'], known), []);
+  assert.deepEqual(findUnknownClientRxSubscribers(['ingest', 'ingset'], known), ['ingset']);
+  assert.deepEqual(findUnknownClientRxSubscribers(['a', 'b'], known), ['a', 'b']);
+  // The match is exact, like the broker's own username lookup.
+  assert.deepEqual(findUnknownClientRxSubscribers(['INGEST'], known), ['INGEST']);
+  assert.deepEqual(findUnknownClientRxSubscribers([], known), []);
+  assert.deepEqual(findUnknownClientRxSubscribers(['ingest'], new Set()), ['ingest']);
 });
 
 test('shouldForwardClientRx ignores topics outside the namespace', () => {

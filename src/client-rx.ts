@@ -125,6 +125,21 @@ export function parseClientRxSubscribers(raw: string | undefined): string[] {
   return Array.from(seen);
 }
 
+/**
+ * Allowlisted usernames that do not correspond to a configured subscriber.
+ *
+ * CLIENT_RX_SUBSCRIBERS is matched against SUBSCRIBER_n usernames by exact
+ * string, so a typo means nobody ever receives anything. That is impossible to
+ * tell apart from "correctly configured, no traffic yet", so it is reported at
+ * start.
+ */
+export function findUnknownClientRxSubscribers(
+  subscribers: readonly string[],
+  knownUsernames: ReadonlySet<string>
+): string[] {
+  return subscribers.filter((username) => !knownUsernames.has(username));
+}
+
 export interface ClientRxRecipient {
   /** True only for authenticated subscriber (subscribe-only) clients. */
   isSubscriber: boolean;

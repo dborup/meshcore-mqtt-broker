@@ -11,6 +11,7 @@ import { loadMqttConfig, loadAbuseConfig, loadSubscriberConfig, loadClientRxConf
 import {
   clientRxTopic,
   describeTokenClaims,
+  findUnknownClientRxSubscribers,
   formatTokenClaimShape,
   isClientRxNamespace,
   parseClientRxTopic,
@@ -118,6 +119,19 @@ if (subscriberUsers.size === 0) {
   console.log('[CONFIG] No subscriber users configured');
 } else {
   console.log(`[CONFIG] Default max connections per subscriber: ${subscriberConfig.defaultMaxConnections}`);
+}
+
+// Checked here rather than in loadClientRxConfig(): the SUBSCRIBER_n table is
+// only known once the loop above has run.
+const unknownClientRxSubscribers = findUnknownClientRxSubscribers(
+  clientRxConfig.subscribers,
+  new Set(subscriberUsers.keys())
+);
+if (unknownClientRxSubscribers.length > 0) {
+  console.warn(
+    `[CONFIG] CLIENT_RX_SUBSCRIBERS lists ${unknownClientRxSubscribers.length} name(s) with no matching SUBSCRIBER_n: ` +
+    `${unknownClientRxSubscribers.join(', ')} - they will never receive anything`
+  );
 }
 
 console.log(

@@ -27,6 +27,7 @@ const PORT = 13701;
 const ALLOWLISTED = 'ingest';
 const NOT_ALLOWLISTED = 'viewer';
 const ADMIN = 'admin';
+const TYPO = 'ingset';
 
 let broker: TestBroker;
 
@@ -36,7 +37,9 @@ before(async () => {
     SUBSCRIBER_2: `${NOT_ALLOWLISTED}:${SUBSCRIBER_PASSWORD}:2`,
     SUBSCRIBER_3: `${ADMIN}:${SUBSCRIBER_PASSWORD}:1`,
     CLIENT_RX_ENABLED: 'true',
-    CLIENT_RX_SUBSCRIBERS: ALLOWLISTED,
+    // TYPO is deliberate: it has no SUBSCRIBER_n, so it must be called out at
+    // start without affecting the name that is spelled correctly.
+    CLIENT_RX_SUBSCRIBERS: `${ALLOWLISTED},${TYPO}`,
   });
 });
 
@@ -49,6 +52,14 @@ function clientTopic(keypair: TestKeypair): string {
 }
 
 const RX_PAYLOAD = { raw: 'ab'.repeat(16), lat: 55.6761, lon: 12.5683, snr: -7 };
+
+test('an allowlisted name with no SUBSCRIBER_n is called out at startup', async () => {
+  await expectLogLine(broker, [
+    `CLIENT_RX_SUBSCRIBERS lists 1 name(s) with no matching SUBSCRIBER_n: ${TYPO}`,
+  ]);
+  // The correctly spelled name is unaffected.
+  await expectLogLine(broker, ['[CONFIG] Client RX topics: enabled', 'allowlisted subscribers: 2']);
+});
 
 test('a 24h token delivers client RX packets to the allowlisted subscriber only', async () => {
   const keypair = await createTestKeypair('rx-happy-path');
