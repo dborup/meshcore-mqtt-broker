@@ -10,6 +10,8 @@ import { AbuseDetector } from './abuse-detector';
 import { loadMqttConfig, loadAbuseConfig, loadSubscriberConfig, loadClientRxConfig } from './config';
 import {
   clientRxTopic,
+  describeTokenClaims,
+  formatTokenClaimShape,
   isClientRxNamespace,
   parseClientRxTopic,
   shouldForwardClientRx,
@@ -238,6 +240,10 @@ aedes.authenticate = async (client, username, password, callback) => {
     
     const shortKey = publicKey.substring(0, 8);
     console.log(`[O:${shortKey}] [AUTH] ✓ Publisher authenticated${tokenPayload.aud ? ` [aud: ${tokenPayload.aud}]` : ''}`);
+    // Measurement only: the shape of the token claims, never the token, the
+    // signature or the payload. Lets an operator see how many publishers
+    // already send `exp` before deciding to require it everywhere.
+    console.log(`[O:${shortKey}] [AUTH] [CLAIMS] ${formatTokenClaimShape(describeTokenClaims(tokenPayload))}`);
     // Store the public key and client type with the client for later use
     (client as any).publicKey = publicKey;
     (client as any).tokenPayload = tokenPayload;
