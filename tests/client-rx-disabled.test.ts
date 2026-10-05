@@ -36,6 +36,17 @@ after(async () => {
   await broker.stop();
 });
 
+test('the harness reports the port the broker actually listens on', async () => {
+  // The harness asks for port 0 unless BROKER_TEST_PORT pins it, so the port
+  // has to come back from the listening socket rather than from the request.
+  const pinned = process.env.BROKER_TEST_PORT;
+  assert.ok(broker.port > 0, `expected a resolved port, got ${broker.port}`);
+  assert.equal(broker.url, `ws://127.0.0.1:${broker.port}`);
+  if (pinned) {
+    assert.equal(broker.port, Number(pinned));
+  }
+});
+
 test('the broker reports the feature as disabled', async () => {
   await expectLogLine(broker, ['[CONFIG] Client RX topics: disabled', 'allowlisted subscribers: 0']);
 });
