@@ -1,5 +1,6 @@
 import { config as dotenvConfig } from 'dotenv';
 import { AbuseConfig } from './abuse-detector';
+import { ClientRxConfig, resolveClientRxConfig } from './client-rx';
 
 // Load environment variables
 dotenvConfig();
@@ -83,3 +84,16 @@ export function loadAbuseConfig(): AbuseConfig {
   };
 }
 
+// Validate and load client RX configuration
+// All CLIENT_RX_* variables are optional; unset means the feature is disabled.
+export function loadClientRxConfig(): ClientRxConfig {
+  const clientRxConfig = resolveClientRxConfig(process.env);
+
+  if (clientRxConfig.enabled && clientRxConfig.subscribers.length === 0) {
+    console.warn(
+      '[CONFIG] CLIENT_RX_ENABLED=true but CLIENT_RX_SUBSCRIBERS is empty - client packets will not be delivered to anyone'
+    );
+  }
+
+  return clientRxConfig;
+}
