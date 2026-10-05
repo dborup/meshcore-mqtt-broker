@@ -32,6 +32,10 @@ before(async () => {
     SUBSCRIBER_1: `${VIEWER}:${SUBSCRIBER_PASSWORD}:2`,
     SUBSCRIBER_2: `${ADMIN}:${SUBSCRIBER_PASSWORD}:1`,
     CLIENT_RX_ENABLED: 'true',
+    // Deliberately bad: 0 is not a lifetime and 86400 is above the skew
+    // ceiling. Both are corrected, and both must be reported at start.
+    CLIENT_RX_MAX_TOKEN_LIFETIME_S: '0',
+    CLIENT_RX_CLOCK_SKEW_S: '86400',
   });
 });
 
@@ -41,6 +45,18 @@ after(async () => {
 
 test('an empty allowlist is called out at startup', async () => {
   await expectLogLine(broker, ['CLIENT_RX_ENABLED=true but CLIENT_RX_SUBSCRIBERS is empty']);
+});
+
+test('a corrected configuration value is reported at startup', async () => {
+  // Falling back to 86400 - the loosest budget - is the opposite of what
+  // CLIENT_RX_MAX_TOKEN_LIFETIME_S=0 asked for, so it may not happen quietly.
+  await expectLogLine(broker, [
+    'CLIENT_RX_MAX_TOKEN_LIFETIME_S=0 is not an integer >= 1 - using the default 86400',
+  ]);
+  await expectLogLine(broker, [
+    'CLIENT_RX_CLOCK_SKEW_S=86400 is above the 3600 ceiling - using 3600',
+  ]);
+  await expectLogLine(broker, ['[CONFIG] Client RX topics: enabled', 'clock skew: 3600s']);
 });
 
 test('an empty allowlist delivers client RX packets to nobody', async () => {

@@ -30,6 +30,15 @@ export const CLIENT_RX_DEFAULT_MAX_TOKEN_LIFETIME_S = 86400;
 /** Default tolerance for a client clock running ahead of the broker. */
 export const CLIENT_RX_DEFAULT_CLOCK_SKEW_S = 300;
 
+/**
+ * Upper bound for CLIENT_RX_CLOCK_SKEW_S (1 hour).
+ *
+ * The skew is added to the token lifetime budget: a token stays usable for up
+ * to `lifetime + skew` after it was minted, so this ceiling is deliberately
+ * much lower than the lifetime ceiling.
+ */
+export const CLIENT_RX_CLOCK_SKEW_LIMIT_S = 3600;
+
 export interface ClientRxConfig {
   /** When false the namespace is rejected exactly like any other unknown topic. */
   enabled: boolean;
@@ -41,7 +50,20 @@ export interface ClientRxConfig {
   clockSkewS: number;
 }
 
+export interface ClientRxConfigResult {
+  config: ClientRxConfig;
+  /**
+   * Problems found while parsing the environment, meant to be logged at start.
+   * An out of range or non numeric value is corrected rather than fatal, but it
+   * is never corrected silently: an operator who typed
+   * CLIENT_RX_MAX_TOKEN_LIFETIME_S=0 asked for the strictest budget and would
+   * otherwise get the loosest one.
+   */
+  problems: string[];
+}
+
 const PUBLIC_KEY_PATTERN = /^[0-9A-Fa-f]{64}$/;
+const INTEGER_PATTERN = /^[+-]?\d+$/;
 
 /**
  * True when a topic falls inside the client RX namespace.
@@ -226,16 +248,30 @@ export function formatTokenClaimShape(shape: TokenClaimShape): string {
   return `has_exp=${shape.has_exp} lifetime_h=${lifetime} has_aud=${shape.has_aud}`;
 }
 
-function parseBoundedInt(raw: string | undefined, fallback: number, min: number, max: number): number {
+function parseBoundedInt(
+  problems: string[],
+  name: string,
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number {
   if (raw === undefined || raw.trim() === '') {
     return fallback;
   }
 
-  const parsed = Number.parseInt(raw, 10);
+  const trimmed = raw.trim();
+  // Number.parseInt would happily read "3600abc" as 3600.
+  const parsed = INTEGER_PATTERN.test(trimmed) ? Number.parseInt(trimmed, 10) : Number.NaN;
   if (!Number.isFinite(parsed) || parsed < min) {
+    problems.push(`${name}=${trimmed} is not an integer >= ${min} - using the default ${fallback}`);
     return fallback;
   }
-  return Math.min(parsed, max);
+  if (parsed > max) {
+    problems.push(`${name}=${trimmed} is above the ${max} ceiling - using ${max}`);
+    return max;
+  }
+  return parsed;
 }
 
 /**
@@ -244,21 +280,29 @@ function parseBoundedInt(raw: string | undefined, fallback: number, min: number,
  * Every variable is optional: with none of them set the feature is disabled
  * and the namespace is rejected like any other unknown topic.
  */
-export function resolveClientRxConfig(env: Record<string, string | undefined>): ClientRxConfig {
-  return {
+export function resolveClientRxConfig(env: Record<string, string | undefined>): ClientRxConfigResult {
+  const problems: string[] = [];
+
+  const config: ClientRxConfig = {
     enabled: env.CLIENT_RX_ENABLED === 'true',
     subscribers: parseClientRxSubscribers(env.CLIENT_RX_SUBSCRIBERS),
     maxTokenLifetimeS: parseBoundedInt(
+      problems,
+      'CLIENT_RX_MAX_TOKEN_LIFETIME_S',
       env.CLIENT_RX_MAX_TOKEN_LIFETIME_S,
       CLIENT_RX_DEFAULT_MAX_TOKEN_LIFETIME_S,
       1,
       CLIENT_RX_MAX_TOKEN_LIFETIME_LIMIT_S
     ),
     clockSkewS: parseBoundedInt(
+      problems,
+      'CLIENT_RX_CLOCK_SKEW_S',
       env.CLIENT_RX_CLOCK_SKEW_S,
       CLIENT_RX_DEFAULT_CLOCK_SKEW_S,
       0,
-      CLIENT_RX_MAX_TOKEN_LIFETIME_LIMIT_S
+      CLIENT_RX_CLOCK_SKEW_LIMIT_S
     ),
   };
+
+  return { config, problems };
 }

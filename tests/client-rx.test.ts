@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  CLIENT_RX_CLOCK_SKEW_LIMIT_S,
   CLIENT_RX_DEFAULT_CLOCK_SKEW_S,
   CLIENT_RX_DEFAULT_MAX_TOKEN_LIFETIME_S,
   CLIENT_RX_MAX_TOKEN_LIFETIME_LIMIT_S,
@@ -210,53 +211,90 @@ test('formatTokenClaimShape never leaks claim values', () => {
 
 test('resolveClientRxConfig defaults to the feature being off', () => {
   assert.deepEqual(resolveClientRxConfig({}), {
-    enabled: false,
-    subscribers: [],
-    maxTokenLifetimeS: CLIENT_RX_DEFAULT_MAX_TOKEN_LIFETIME_S,
-    clockSkewS: CLIENT_RX_DEFAULT_CLOCK_SKEW_S,
+    config: {
+      enabled: false,
+      subscribers: [],
+      maxTokenLifetimeS: CLIENT_RX_DEFAULT_MAX_TOKEN_LIFETIME_S,
+      clockSkewS: CLIENT_RX_DEFAULT_CLOCK_SKEW_S,
+    },
+    problems: [],
   });
-  assert.equal(resolveClientRxConfig({ CLIENT_RX_ENABLED: 'TRUE' }).enabled, false);
-  assert.equal(resolveClientRxConfig({ CLIENT_RX_ENABLED: '1' }).enabled, false);
-  assert.equal(resolveClientRxConfig({ CLIENT_RX_ENABLED: 'true' }).enabled, true);
+  assert.equal(resolveClientRxConfig({ CLIENT_RX_ENABLED: 'TRUE' }).config.enabled, false);
+  assert.equal(resolveClientRxConfig({ CLIENT_RX_ENABLED: '1' }).config.enabled, false);
+  assert.equal(resolveClientRxConfig({ CLIENT_RX_ENABLED: 'true' }).config.enabled, true);
 });
 
 test('resolveClientRxConfig caps the token lifetime at 24h', () => {
-  assert.equal(
-    resolveClientRxConfig({ CLIENT_RX_MAX_TOKEN_LIFETIME_S: '999999' }).maxTokenLifetimeS,
-    CLIENT_RX_MAX_TOKEN_LIFETIME_LIMIT_S
-  );
-  assert.equal(resolveClientRxConfig({ CLIENT_RX_MAX_TOKEN_LIFETIME_S: '3600' }).maxTokenLifetimeS, 3600);
-  assert.equal(
-    resolveClientRxConfig({ CLIENT_RX_MAX_TOKEN_LIFETIME_S: 'not-a-number' }).maxTokenLifetimeS,
-    CLIENT_RX_DEFAULT_MAX_TOKEN_LIFETIME_S
-  );
-  assert.equal(
-    resolveClientRxConfig({ CLIENT_RX_MAX_TOKEN_LIFETIME_S: '0' }).maxTokenLifetimeS,
-    CLIENT_RX_DEFAULT_MAX_TOKEN_LIFETIME_S
-  );
-  assert.equal(
-    resolveClientRxConfig({ CLIENT_RX_MAX_TOKEN_LIFETIME_S: '-5' }).maxTokenLifetimeS,
-    CLIENT_RX_DEFAULT_MAX_TOKEN_LIFETIME_S
-  );
+  const capped = resolveClientRxConfig({ CLIENT_RX_MAX_TOKEN_LIFETIME_S: '999999' });
+  assert.equal(capped.config.maxTokenLifetimeS, CLIENT_RX_MAX_TOKEN_LIFETIME_LIMIT_S);
+  assert.deepEqual(capped.problems, [
+    `CLIENT_RX_MAX_TOKEN_LIFETIME_S=999999 is above the ${CLIENT_RX_MAX_TOKEN_LIFETIME_LIMIT_S} ceiling - using ${CLIENT_RX_MAX_TOKEN_LIFETIME_LIMIT_S}`,
+  ]);
+
+  const exact = resolveClientRxConfig({ CLIENT_RX_MAX_TOKEN_LIFETIME_S: '3600' });
+  assert.equal(exact.config.maxTokenLifetimeS, 3600);
+  assert.deepEqual(exact.problems, []);
+});
+
+test('resolveClientRxConfig warns instead of silently using the default', () => {
+  // 0, a negative value, trailing garbage and plain nonsense all fall back to
+  // the *maximum* lifetime, which is the opposite of what was asked for, so
+  // none of them may be corrected quietly.
+  for (const raw of ['0', '-5', 'not-a-number', '3600abc', '1e3', ' ']) {
+    const resolved = resolveClientRxConfig({ CLIENT_RX_MAX_TOKEN_LIFETIME_S: raw });
+    assert.equal(
+      resolved.config.maxTokenLifetimeS,
+      CLIENT_RX_DEFAULT_MAX_TOKEN_LIFETIME_S,
+      `${JSON.stringify(raw)} must fall back to the default lifetime`
+    );
+    if (raw.trim() === '') {
+      // An unset variable is not a problem worth warning about.
+      assert.deepEqual(resolved.problems, []);
+      continue;
+    }
+    assert.deepEqual(resolved.problems, [
+      `CLIENT_RX_MAX_TOKEN_LIFETIME_S=${raw.trim()} is not an integer >= 1 - using the default ${CLIENT_RX_DEFAULT_MAX_TOKEN_LIFETIME_S}`,
+    ]);
+  }
+});
+
+test('resolveClientRxConfig caps the clock skew at an hour', () => {
+  assert.equal(CLIENT_RX_CLOCK_SKEW_LIMIT_S, 3600);
+
+  const capped = resolveClientRxConfig({ CLIENT_RX_CLOCK_SKEW_S: '86400' });
+  assert.equal(capped.config.clockSkewS, CLIENT_RX_CLOCK_SKEW_LIMIT_S);
+  assert.deepEqual(capped.problems, [
+    `CLIENT_RX_CLOCK_SKEW_S=86400 is above the ${CLIENT_RX_CLOCK_SKEW_LIMIT_S} ceiling - using ${CLIENT_RX_CLOCK_SKEW_LIMIT_S}`,
+  ]);
+  assert.equal(resolveClientRxConfig({ CLIENT_RX_CLOCK_SKEW_S: '3600' }).config.clockSkewS, 3600);
 });
 
 test('resolveClientRxConfig reads skew and subscribers', () => {
-  const config = resolveClientRxConfig({
+  const resolved = resolveClientRxConfig({
     CLIENT_RX_ENABLED: 'true',
     CLIENT_RX_SUBSCRIBERS: 'ingest, backup',
     CLIENT_RX_CLOCK_SKEW_S: '30',
   });
-  assert.deepEqual(config, {
-    enabled: true,
-    subscribers: ['ingest', 'backup'],
-    maxTokenLifetimeS: CLIENT_RX_DEFAULT_MAX_TOKEN_LIFETIME_S,
-    clockSkewS: 30,
+  assert.deepEqual(resolved, {
+    config: {
+      enabled: true,
+      subscribers: ['ingest', 'backup'],
+      maxTokenLifetimeS: CLIENT_RX_DEFAULT_MAX_TOKEN_LIFETIME_S,
+      clockSkewS: 30,
+    },
+    problems: [],
   });
-  assert.equal(resolveClientRxConfig({ CLIENT_RX_CLOCK_SKEW_S: '0' }).clockSkewS, 0);
-  assert.equal(
-    resolveClientRxConfig({ CLIENT_RX_CLOCK_SKEW_S: 'x' }).clockSkewS,
-    CLIENT_RX_DEFAULT_CLOCK_SKEW_S
-  );
+
+  // 0 is a legitimate skew, so it is accepted without a warning.
+  const noSkew = resolveClientRxConfig({ CLIENT_RX_CLOCK_SKEW_S: '0' });
+  assert.equal(noSkew.config.clockSkewS, 0);
+  assert.deepEqual(noSkew.problems, []);
+
+  const bogus = resolveClientRxConfig({ CLIENT_RX_CLOCK_SKEW_S: 'x' });
+  assert.equal(bogus.config.clockSkewS, CLIENT_RX_DEFAULT_CLOCK_SKEW_S);
+  assert.deepEqual(bogus.problems, [
+    `CLIENT_RX_CLOCK_SKEW_S=x is not an integer >= 0 - using the default ${CLIENT_RX_DEFAULT_CLOCK_SKEW_S}`,
+  ]);
 });
 
 test('a publisher public key never matches another client topic', () => {

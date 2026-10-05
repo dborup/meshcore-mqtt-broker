@@ -87,7 +87,14 @@ export function loadAbuseConfig(): AbuseConfig {
 // Validate and load client RX configuration
 // All CLIENT_RX_* variables are optional; unset means the feature is disabled.
 export function loadClientRxConfig(): ClientRxConfig {
-  const clientRxConfig = resolveClientRxConfig(process.env);
+  const { config: clientRxConfig, problems } = resolveClientRxConfig(process.env);
+
+  // A corrected value is never corrected silently: an operator who typed
+  // CLIENT_RX_MAX_TOKEN_LIFETIME_S=0 asked for the strictest budget and would
+  // otherwise silently get the loosest one.
+  for (const problem of problems) {
+    console.warn(`[CONFIG] ${problem}`);
+  }
 
   if (clientRxConfig.enabled && clientRxConfig.subscribers.length === 0) {
     console.warn(

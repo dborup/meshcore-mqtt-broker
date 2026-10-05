@@ -203,7 +203,12 @@ These payloads typically contain a precise position, so the namespace is
 | `CLIENT_RX_ENABLED` | `false` | Set to `true` to accept the namespace. Anything else leaves the topic rejected. |
 | `CLIENT_RX_SUBSCRIBERS` | *(empty)* | Comma separated subscriber usernames allowed to receive client RX packets. Empty means nobody receives them. |
 | `CLIENT_RX_MAX_TOKEN_LIFETIME_S` | `86400` | Largest accepted `exp - iat` of a publishing token. Values above 86400 (24h) are capped. |
-| `CLIENT_RX_CLOCK_SKEW_S` | `300` | How far `iat` may be in the future before the publish is rejected. |
+
+An out of range or non numeric `CLIENT_RX_MAX_TOKEN_LIFETIME_S` or
+`CLIENT_RX_CLOCK_SKEW_S` is corrected rather than fatal, but the correction is
+always logged as a `[CONFIG]` warning at start.
+
+| `CLIENT_RX_CLOCK_SKEW_S` | `300` | How far `iat` may be in the future before the publish is rejected. Capped at 3600 (1h), because the skew is added to the lifetime budget. |
 
 With `CLIENT_RX_ENABLED` unset the namespace is rejected and subscriptions are
 answered as before. One deliberate difference remains in that state: the

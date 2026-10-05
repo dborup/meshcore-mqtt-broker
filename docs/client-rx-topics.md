@@ -49,7 +49,8 @@ time:
   malformed and is refused.
 - `exp - iat` is at most `CLIENT_RX_MAX_TOKEN_LIFETIME_S` (default and hard cap
   86400 seconds).
-- `iat` is no more than `CLIENT_RX_CLOCK_SKEW_S` in the future (default 300).
+- `iat` is no more than `CLIENT_RX_CLOCK_SKEW_S` in the future (default 300,
+  hard cap 3600).
 - `exp` has not passed. A token can expire in the middle of a long lived
   connection; that publish is rejected and the client is closed, so the client
   has to reconnect with a fresh token.
@@ -93,7 +94,20 @@ receiving client is a subscriber whose username appears in
 | `CLIENT_RX_ENABLED` | `false` | Set to `true` to accept the namespace. |
 | `CLIENT_RX_SUBSCRIBERS` | *(empty)* | Comma separated subscriber usernames allowed to receive client RX packets. |
 | `CLIENT_RX_MAX_TOKEN_LIFETIME_S` | `86400` | Largest accepted `exp - iat`. Capped at 86400. |
-| `CLIENT_RX_CLOCK_SKEW_S` | `300` | How far `iat` may be in the future. |
+| `CLIENT_RX_CLOCK_SKEW_S` | `300` | How far `iat` may be in the future. Capped at 3600. |
+
+A token is usable for up to `lifetime + skew` after it was minted, which is why
+the skew ceiling (1 hour) is much lower than the lifetime ceiling (24 hours).
+
+A value that is above its ceiling, below its floor or not an integer at all is
+corrected rather than fatal - `CLIENT_RX_MAX_TOKEN_LIFETIME_S=0` and
+`CLIENT_RX_MAX_TOKEN_LIFETIME_S=3600abc` both fall back to the default - but the
+correction is always logged at start:
+
+```
+[CONFIG] CLIENT_RX_MAX_TOKEN_LIFETIME_S=0 is not an integer >= 1 - using the default 86400
+[CONFIG] CLIENT_RX_CLOCK_SKEW_S=86400 is above the 3600 ceiling - using 3600
+```
 
 All four are optional. With none of them set the namespace is rejected and
 subscriptions are answered as before, with one deliberate difference: the
