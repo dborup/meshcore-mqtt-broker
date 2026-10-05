@@ -320,5 +320,19 @@ test('no token material is logged for accepted, forged or expired logins', async
     assert.equal(log.includes(payloadSegment), false, `the ${name} token payload must not appear in the log`);
   }
 
-  assert.match(log, /\[AUTH\] \[CLAIMS\] has_exp=true lifetime_h=24 has_aud=true/);
+  // Anchored on purpose: a [CLAIMS] line must carry the claim *shape* and
+  // nothing else, so an extra field appended to it fails here.
+  const claimLines = broker.logLines().filter((line) => line.includes('[CLAIMS]'));
+  assert.ok(claimLines.length > 0, 'every publisher login must log a [CLAIMS] line');
+  for (const line of claimLines) {
+    assert.match(
+      line,
+      /^\[O:[0-9A-F]{8}\] \[AUTH\] \[CLAIMS\] has_exp=(true|false) lifetime_h=(-?\d+|n\/a) has_aud=(true|false)$/,
+      `the [CLAIMS] line must contain the claim shape only: ${line}`
+    );
+  }
+  assert.ok(
+    claimLines.some((line) => line === `[O:${keypair.publicKeyHex.slice(0, 8)}] [AUTH] [CLAIMS] has_exp=true lifetime_h=24 has_aud=true`),
+    'the accepted 24h token must be reported as a 24h token'
+  );
 });
