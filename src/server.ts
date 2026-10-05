@@ -204,15 +204,13 @@ aedes.authenticate = async (client, username, password, callback) => {
     }
 
     // Verify the auth token using meshcore-decoder
+    // The token is a bearer credential: never log the token, its hex dump or
+    // its signature, not even at debug level.
     const tokenPayload = await verifyAuthToken(passwordStr, publicKey);
-    console.debug(`${logPrefix} [AUTH] Token input: "${passwordStr}"`);
 
-    
     if (!tokenPayload) {
       console.log(`${logPrefix} [AUTH] ✗ Invalid token signature`);
-      console.debug(`${logPrefix} [AUTH] Token input: "${passwordStr}"`);      
       console.debug(`${logPrefix} [AUTH] Public key: ${publicKey}`);
-      console.debug(`${logPrefix} [AUTH] Token hex: ${Buffer.from(passwordStr).toString('hex')}`);
       callback(null, false);
       return;
     }
