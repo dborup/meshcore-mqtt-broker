@@ -13,6 +13,7 @@ import {
   findUnknownClientRxSubscribers,
   isClientRxNamespace,
   parseClientRxTopic,
+  shouldForwardClientRx,
 } from './client-rx';
 
 // Load and validate configuration
@@ -671,6 +672,27 @@ aedes.authorizeSubscribe = (client, subscription, callback) => {
   
   // Subscriber clients can subscribe to any topic (they're listeners)
   if (clientType === ClientType.SUBSCRIBER) {
+    // An explicit subscription inside the client RX namespace is refused for
+    // subscribers that are not allowlisted, so a misconfigured consumer fails
+    // loudly instead of silently receiving nothing. Wildcard subscriptions such
+    // as meshcore/# are still accepted and filtered per packet on forward.
+    // Only enforced while the feature is enabled, so a broker without client RX
+    // keeps answering subscriptions exactly as before.
+    if (
+      clientRxConfig.enabled &&
+      isClientRxNamespace(subscription.topic) &&
+      !clientRxConfig.subscribers.includes((client as any).username || '')
+    ) {
+      console.log(`${logPrefix} [AUTHZ] ✗ Subscribe denied (client RX not allowlisted) -> ${subscription.topic}`);
+      // callback(null, null) refuses this one filter with a negative SUBACK
+      // (0x80). Refusing with an Error would make aedes drop the whole
+      // connection, which would take every other topic in the same SUBSCRIBE
+      // down with it - an admin dashboard that subscribes to a topic list
+      // including meshcore/client/# would lose all of its subscriptions.
+      callback(null, null);
+      return;
+    }
+
     console.log(`${logPrefix} [AUTHZ] ✓ Subscribe authorized -> ${subscription.topic}`);
     callback(null, subscription);
     return;
@@ -692,6 +714,23 @@ aedes.authorizeForward = (client, packet) => {
   
   const clientType = (client as any).clientType;
   const role = (client as any).role;
+  
+  // Client RX coverage carries precise positions, so it is only delivered to
+  // the subscriber usernames in CLIENT_RX_SUBSCRIBERS. Checked per packet so a
+  // wildcard subscription (meshcore/#) cannot sidestep the allowlist, and with
+  // no exemption for admins (role 1) or publishers.
+  if (
+    !shouldForwardClientRx(
+      packet.topic,
+      {
+        isSubscriber: clientType === ClientType.SUBSCRIBER,
+        username: (client as any).username,
+      },
+      clientRxConfig.subscribers
+    )
+  ) {
+    return null; // Block delivery of this message
+  }
   
   // Block $SYS/* messages for non-admin subscribers (only role 1 can see system topics)
   if (clientType === ClientType.SUBSCRIBER && role !== SubscriberRole.ADMIN) {
